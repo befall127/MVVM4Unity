@@ -40,7 +40,7 @@ public class BindableProperty<T> : IBindableProperty
     }
 
     /// <summary>
-    /// 注册数据变化监听（之后当数据变更时通过Value.set可直接触发更新事件）
+    /// 注册数据变化监听（之后当数据变更时不仅Value.set可直接触发更新事件）
     /// </summary>
     public void RegistValueChanged(UnityAction<T> OnValueChanged)
     {
@@ -63,5 +63,16 @@ public class BindableProperty<T> : IBindableProperty
     public void Clear()
     {
         _value = default(T);
+    }
+
+    public BindableProperty(){ }
+    public BindableProperty(T value)
+    {
+        _value = value;
+    }
+
+    public static implicit operator T(BindableProperty<T> prop)
+    {
+        return prop != null ? prop.Value : default(T);
     }
 }
