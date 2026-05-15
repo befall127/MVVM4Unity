@@ -216,7 +216,7 @@ public class MVVMCodeGenWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("数据绑定（Wrap + BindTwoWay / RegisterMember）", EditorStyles.boldLabel);
         if (GUILayout.Button("+", GUILayout.Width(BUTTON_WIDTH)))
-            _dataBindings.Add(new DataBindingEntry());
+            _dataBindings.Add(new DataBindingEntry { preselectPathIndex = _dataPreselectIndex });
         if (GUILayout.Button("-", GUILayout.Width(BUTTON_WIDTH)))
         {
             if (_dataBindings.Count > 0) _dataBindings.RemoveAt(_dataBindings.Count - 1);
@@ -250,7 +250,7 @@ public class MVVMCodeGenWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField($"#{index + 1}", GUILayout.Width(24));
         int prevIndex = entry.sourceIndex;
-        GetFilteredScannedNames(_dataPreselectIndex, out string[] filterNames, out int[] mapping);
+        GetFilteredScannedNames(entry.preselectPathIndex, out string[] filterNames, out int[] mapping);
 
         // 将原始索引映射到过滤列表中的索引，默认为 0
         int displayIndex = System.Array.IndexOf(mapping, entry.sourceIndex);
@@ -317,7 +317,7 @@ public class MVVMCodeGenWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("事件绑定（RegisterEvent）", EditorStyles.boldLabel);
         if (GUILayout.Button("+", GUILayout.Width(BUTTON_WIDTH)))
-            _eventBindings.Add(new EventBindingEntry());
+            _eventBindings.Add(new EventBindingEntry { preselectPathIndex = _eventPreselectIndex });
         if (GUILayout.Button("-", GUILayout.Width(BUTTON_WIDTH)))
         {
             if (_eventBindings.Count > 0) _eventBindings.RemoveAt(_eventBindings.Count - 1);
@@ -351,7 +351,7 @@ public class MVVMCodeGenWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField($"#{index + 1}", GUILayout.Width(24));
         int prevIndex = entry.sourceIndex;
-        GetFilteredScannedNames(_eventPreselectIndex, out string[] filterNames, out int[] mapping);
+        GetFilteredScannedNames(entry.preselectPathIndex, out string[] filterNames, out int[] mapping);
 
         int displayIndex = System.Array.IndexOf(mapping, entry.sourceIndex);
         displayIndex = displayIndex >= 0 ? displayIndex : 0;

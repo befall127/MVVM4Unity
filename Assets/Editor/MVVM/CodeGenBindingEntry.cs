@@ -46,6 +46,7 @@ namespace MVVM.Editor
     {
         public int sourceIndex = -1;             // ScannedComponent 索引
         public int sourcePropIndex = -1;         // properties 索引
+        public int preselectPathIndex = -1;      // 创建时的预选路径索引，之后不受全局预选路径变化影响
         public string customFieldName = "";      // 自定义变量名（不为空时替代自动生成的名字）
         public string vmPropertyName = "";       // ViewModel 属性名
         public bool isTwoWay = true;
@@ -59,6 +60,7 @@ namespace MVVM.Editor
     {
         public int sourceIndex = -1;
         public int sourceEventIndex = -1;
+        public int preselectPathIndex = -1;      // 创建时的预选路径索引
         public string customFieldName = "";      // 自定义变量名
         public string vmCommandName = "";
         public string captureParamExpr = "";    // 可选：传递捕获参数，如 "m_InputField.text"
