@@ -36,6 +36,11 @@ public class MVVMCodeGenWindow : EditorWindow
     private List<MonoScript> _viewScripts = new List<MonoScript>();
     private Vector2 _vmScrollPos;
 
+    // ===== Manager 批量生成 =====
+    private List<ManagerEntry> _managerEntries = new List<ManagerEntry>();
+    private Vector2 _managerScrollPos;
+    private string _managerFileName = "";
+
     // ===== UI 滚动位置 =====
     private Vector2 _dataScrollPos;
     private Vector2 _eventScrollPos;
@@ -54,6 +59,8 @@ public class MVVMCodeGenWindow : EditorWindow
         win.minSize = new Vector2(600, 500);
         if (win._viewScripts.Count == 0)
             win._viewScripts.Add(null);
+        if (win._managerEntries.Count == 0)
+            win._managerEntries.Add(new ManagerEntry());
     }
 
     [MenuItem("Assets/MVVM/Generate ViewModel from View Script", false, 1100)]
@@ -131,6 +138,10 @@ public class MVVMCodeGenWindow : EditorWindow
         // ====== ViewModel 批量生成（始终可见） ======
         EditorGUILayout.Space(8);
         DrawViewModelSection();
+
+        // ====== Manager 批量生成（始终可见） ======
+        EditorGUILayout.Space(8);
+        DrawManagerSection();
     }
 
     #region ============ 扫描 ============
@@ -461,9 +472,106 @@ public class MVVMCodeGenWindow : EditorWindow
         EditorGUILayout.EndScrollView();
     }
 
+    private void DrawManagerSection()
+    {
+        EditorGUILayout.Space(4);
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("生成 Manager", EditorStyles.boldLabel);
+        if (GUILayout.Button("+", GUILayout.Width(BUTTON_WIDTH)))
+            _managerEntries.Add(new ManagerEntry());
+        if (GUILayout.Button("-", GUILayout.Width(BUTTON_WIDTH)))
+        {
+            if (_managerEntries.Count > 1) _managerEntries.RemoveAt(_managerEntries.Count - 1);
+        }
+        if (GUILayout.Button("生成", GUILayout.Height(24), GUILayout.Width(56)))
+            GenerateManagersBatch();
+        EditorGUILayout.EndHorizontal();
+
+        // 多组时显示文件名输入，默认从第一对推导
+        if (_managerEntries.Count > 1)
+        {
+            if (string.IsNullOrEmpty(_managerFileName))
+                _managerFileName = DeriveManagerFileName();
+            _managerFileName = EditorGUILayout.TextField("Manager 文件名", _managerFileName);
+        }
+        else
+        {
+            _managerFileName = "";
+        }
+
+        _managerScrollPos = EditorGUILayout.BeginScrollView(_managerScrollPos, GUILayout.MaxHeight(130));
+        for (int i = 0; i < _managerEntries.Count; i++)
+        {
+            var entry = _managerEntries[i];
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField($"#{i + 1}", GUILayout.Width(24));
+            entry.viewScript = (MonoScript)EditorGUILayout.ObjectField("View", entry.viewScript, typeof(MonoScript), false);
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("", GUILayout.Width(24));
+            entry.viewModelScript = (MonoScript)EditorGUILayout.ObjectField("ViewModel", entry.viewModelScript, typeof(MonoScript), false);
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(4);
+        }
+        EditorGUILayout.EndScrollView();
+    }
+
+    private void GenerateManagersBatch()
+    {
+        var validPairs = new List<ManagerGenerator.PairInfo>();
+        foreach (var entry in _managerEntries)
+        {
+            if (entry.viewScript == null || entry.viewModelScript == null) continue;
+            var viewPath = AssetDatabase.GetAssetPath(entry.viewScript);
+            var vmPath   = AssetDatabase.GetAssetPath(entry.viewModelScript);
+            if (string.IsNullOrEmpty(viewPath) || string.IsNullOrEmpty(vmPath)) continue;
+            validPairs.Add(new ManagerGenerator.PairInfo { viewScriptPath = viewPath, viewModelScriptPath = vmPath });
+        }
+
+        if (validPairs.Count == 0)
+        {
+            EditorUtility.DisplayDialog("提示", "请至少拖入一组有效的 View + ViewModel 脚本", "确定");
+            return;
+        }
+
+        var rule = GenCodeRule.DefaultManagerRule;
+        string className = string.IsNullOrEmpty(_managerFileName) ? DeriveManagerFileName() : _managerFileName;
+        string code = ManagerGenerator.Generate(validPairs, rule, className);
+
+        if (string.IsNullOrEmpty(code))
+        {
+            EditorUtility.DisplayDialog("失败", "无法生成 Manager，请检查输入文件", "确定");
+            return;
+        }
+
+        var dir = System.IO.Path.Combine(Application.dataPath, rule.outputDirectory);
+        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+        var filePath = System.IO.Path.Combine(dir, className + ".cs");
+        File.WriteAllText(filePath, code);
+        AssetDatabase.Refresh();
+
+        Debug.Log($"[MVVMCodeGen] Manager 已生成: {filePath}");
+        EditorUtility.DisplayDialog("完成", $"Manager 已生成:\n{filePath}", "确定");
+    }
+
     /// <summary>
-    /// 将窗口中的绑定配置转为 ComponentItem 列表，再通过 GenCodeUtil 生成代码
+    /// 从第一组有效 View 脚本推导默认 Manager 文件名
     /// </summary>
+    private string DeriveManagerFileName()
+    {
+        foreach (var entry in _managerEntries)
+        {
+            if (entry.viewScript == null) continue;
+            var path = AssetDatabase.GetAssetPath(entry.viewScript);
+            if (string.IsNullOrEmpty(path)) continue;
+            string viewClass = ManagerGenerator.ExtractClassName(path);
+            if (string.IsNullOrEmpty(viewClass)) continue;
+            string prefix = ManagerGenerator.StripSuffix(viewClass, GenCodeRule.DefaultViewRule.classNameSuffix);
+            return prefix + GenCodeRule.DefaultManagerRule.classNameSuffix;
+        }
+        return "GeneratedManager";
+    }
     private string BuildCode()
     {
         var components = ConvertToComponentItems();
@@ -706,4 +814,11 @@ public class MVVMCodeGenWindow : EditorWindow
     }
 
     #endregion
+}
+
+[System.Serializable]
+public class ManagerEntry
+{
+    public MonoScript viewScript;
+    public MonoScript viewModelScript;
 }

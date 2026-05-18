@@ -50,6 +50,16 @@ public class GenCodeRule
         outputDirectory = "MVVM/Generated"
     };
 
+    public static GenCodeRule DefaultManagerRule => new GenCodeRule
+    {
+        baseClassName = "MonoBehaviour",
+        classNameSuffix = "Manager",
+        fieldPrefix = "m_",
+        enableTwoWayBinding = true,
+        autoAddComponent = false,
+        outputDirectory = "MVVM/Generated"
+    };
+
     /// <summary>浅拷贝一份新的实例，用于修改后不影响预设</summary>
     public GenCodeRule Clone()
     {
