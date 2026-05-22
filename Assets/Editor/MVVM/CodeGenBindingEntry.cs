@@ -95,6 +95,22 @@ namespace MVVM.Editor
             return result;
         }
 
+        /// <summary>
+        /// 仅扫描目标 GameObject 自身组件（不递归子物体），用于 Watcher 等单对象场景
+        /// </summary>
+        public static List<ScannedComponent> ScanSelf(GameObject go)
+        {
+            var result = new List<ScannedComponent>();
+            if (go == null) return result;
+
+            foreach (var comp in go.GetComponents<Component>())
+            {
+                var sc = ToScannedComponent(go, comp, go.name);
+                if (sc != null) result.Add(sc);
+            }
+            return result;
+        }
+
         private static void ScanRecursive(GameObject go, List<ScannedComponent> result, string parentPath)
         {
             // 构造当前节点的完整路径（根节点时 parentPath 为空）
@@ -207,6 +223,7 @@ namespace MVVM.Editor
                    t == typeof(bool) || t == typeof(double) || t == typeof(Color) ||
                    t == typeof(Sprite) || t == typeof(Vector2) || t == typeof(Vector3) ||
                    t == typeof(Vector4) || t == typeof(Vector2Int) || t == typeof(Vector3Int);
+            //return true;
         }
 
         private static string TypeToKeyword(Type t)

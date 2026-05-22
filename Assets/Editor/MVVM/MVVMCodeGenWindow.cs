@@ -41,6 +41,15 @@ public class MVVMCodeGenWindow : EditorWindow
     private Vector2 _managerScrollPos;
     private string _managerFileName = "";
 
+    // ===== Watcher 生成 =====
+    private List<ScannedComponent> _watcherComps = new List<ScannedComponent>();
+    private string[] _watcherCompNames = new string[0];
+    private int _watcherSelectedCompIndex = -1;
+    private List<WatcherPropertyEntry> _watcherProperties = new List<WatcherPropertyEntry>();
+    private Vector2 _watcherScrollPos;
+    private string _watcherPreviewCode = "";
+    private bool _showWatcherPreview;
+
     // ===== UI 滚动位置 =====
     private Vector2 _dataScrollPos;
     private Vector2 _eventScrollPos;
@@ -51,6 +60,8 @@ public class MVVMCodeGenWindow : EditorWindow
     // ===== 常量 =====
     private const float BUTTON_WIDTH = 24f;
     private const float LABEL_WIDTH = 100f;
+
+    private int _curPage = 0;
 
     [MenuItem("MVVM/Code Generator Window")]
     public static void Open()
@@ -93,55 +104,74 @@ public class MVVMCodeGenWindow : EditorWindow
     void OnGUI()
     {
         EditorGUILayout.Space(8);
-
-        // ====== 头部：目标对象 + 类名 ======
-        EditorGUILayout.LabelField("基础配置", EditorStyles.boldLabel);
-        EditorGUI.BeginChangeCheck();
-        _targetObject = (GameObject)EditorGUILayout.ObjectField("目标 GameObject", _targetObject, typeof(GameObject), true);
-        if (EditorGUI.EndChangeCheck())
+        if (_curPage == 0)
         {
-            _className = _targetObject != null
-                ? _targetObject.name.Replace(" ", "") + _viewRule.classNameSuffix
-                : "";
-        }
-        _className = EditorGUILayout.TextField("类名", _className);
+            // ====== 头部：目标对象 + 类名 ======
+            EditorGUILayout.LabelField("基础配置", EditorStyles.boldLabel);
+            EditorGUI.BeginChangeCheck();
+            _targetObject = (GameObject)EditorGUILayout.ObjectField("目标 GameObject", _targetObject, typeof(GameObject), true);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _className = _targetObject != null
+                    ? _targetObject.name.Replace(" ", "") + _viewRule.classNameSuffix
+                    : "";
+            }
+            _className = EditorGUILayout.TextField("类名", _className);
 
-        EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("扫描子物体组件", GUILayout.Height(24)))
-            ScanComponents();
-        if (_scannedComponents.Count > 0)
-            EditorGUILayout.LabelField($"已扫描 {_scannedComponents.Count} 个可绑定组件", EditorStyles.miniLabel);
-        EditorGUILayout.EndHorizontal();
-
-        EditorGUILayout.Space(8);
-
-        if (_scannedComponents.Count == 0)
-        {
-            EditorGUILayout.HelpBox("请先指定目标 GameObject 并点击 扫描子物体组件，以启用 View 脚本生成功能", MessageType.Info);
-        }
-        else
-        {
-            // ====== 数据绑定区域 ======
-            DrawDataBindingSection();
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("扫描子物体组件", GUILayout.Height(24)))
+                ScanComponents();
+            if (_scannedComponents.Count > 0)
+                EditorGUILayout.LabelField($"已扫描 {_scannedComponents.Count} 个可绑定组件", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(8);
 
-            // ====== 事件绑定区域 ======
-            DrawEventBindingSection();
+            if (_scannedComponents.Count == 0)
+            {
+                EditorGUILayout.HelpBox("请先指定目标 GameObject 并点击 扫描子物体组件，以启用 View 脚本生成功能", MessageType.Info);
+            }
+            else
+            {
+                // ====== 数据绑定区域 ======
+                DrawDataBindingSection();
 
-            EditorGUILayout.Space(12);
+                EditorGUILayout.Space(8);
 
-            // ====== 生成按钮 ======
-            DrawGenerateButtons();
+                // ====== 事件绑定区域 ======
+                DrawEventBindingSection();
+
+                EditorGUILayout.Space(12);
+
+                // ====== 生成按钮 ======
+                DrawGenerateButtons();
+            }
+        }
+        if (_curPage == 1)
+        {
+            // ====== ViewModel 批量生成======
+            EditorGUILayout.Space(8);
+            DrawViewModelSection();
+
+            // ====== Manager 批量生成======
+            EditorGUILayout.Space(8);
+            DrawManagerSection();
+        }
+        if (_curPage == 2)
+        {
+            EditorGUILayout.Space(8);
+            DrawWatcherSection();
         }
 
-        // ====== ViewModel 批量生成（始终可见） ======
-        EditorGUILayout.Space(8);
-        DrawViewModelSection();
-
-        // ====== Manager 批量生成（始终可见） ======
-        EditorGUILayout.Space(8);
-        DrawManagerSection();
+        GUILayout.FlexibleSpace();
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("View", GUILayout.Height(BUTTON_WIDTH)))
+            _curPage = 0;
+        if (GUILayout.Button("其他", GUILayout.Height(BUTTON_WIDTH)))
+            _curPage = 1;
+        if (GUILayout.Button("Watcher", GUILayout.Height(BUTTON_WIDTH)))
+            _curPage = 2;
+        GUILayout.EndHorizontal();
     }
 
     #region ============ 扫描 ============
@@ -729,6 +759,171 @@ public class MVVMCodeGenWindow : EditorWindow
 
     #endregion
 
+    #region ============ Watcher 生成 ============
+
+    private void DrawWatcherSection()
+    {
+        // ── 基础配置 ──
+        EditorGUILayout.LabelField("基础配置", EditorStyles.boldLabel);
+        EditorGUI.BeginChangeCheck();
+        _targetObject = (GameObject)EditorGUILayout.ObjectField("目标 GameObject", _targetObject, typeof(GameObject), true);
+        if (EditorGUI.EndChangeCheck())
+        {
+            _watcherComps.Clear();
+            _watcherSelectedCompIndex = -1;
+            _watcherProperties.Clear();
+        }
+
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("扫描自身组件", GUILayout.Height(24)))
+            ScanSelfComponents();
+        if (_watcherComps.Count > 0)
+            EditorGUILayout.LabelField($"已扫描 {_watcherComps.Count} 个组件", EditorStyles.miniLabel);
+        EditorGUILayout.EndHorizontal();
+
+        if (_watcherComps.Count == 0)
+        {
+            EditorGUILayout.HelpBox("请先拖入目标 GameObject 并点击\"扫描自身组件\"", MessageType.Info);
+            return;
+        }
+
+        // ── 组件选择 ──
+        int prevComp = _watcherSelectedCompIndex;
+        _watcherSelectedCompIndex = EditorGUILayout.Popup("目标组件", _watcherSelectedCompIndex, _watcherCompNames);
+        if (_watcherSelectedCompIndex != prevComp)
+            _watcherProperties.Clear();
+
+        EditorGUILayout.Space(4);
+
+        // ── Watcher 属性列表 ──
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("Watcher", EditorStyles.boldLabel);
+        if (GUILayout.Button("+", GUILayout.Width(BUTTON_WIDTH)))
+            _watcherProperties.Add(new WatcherPropertyEntry());
+        if (GUILayout.Button("-", GUILayout.Width(BUTTON_WIDTH)))
+        {
+            if (_watcherProperties.Count > 0)
+                _watcherProperties.RemoveAt(_watcherProperties.Count - 1);
+        }
+        EditorGUILayout.EndHorizontal();
+
+        if (_watcherProperties.Count == 0)
+        {
+            EditorGUILayout.HelpBox("点击 + 添加需要轮询监听的属性", MessageType.Info);
+            return;
+        }
+
+        var sc = WatcherGenerator.GetSelectedWatcherComp(_watcherSelectedCompIndex,_watcherComps);
+        if (sc == null) return;
+
+        _watcherScrollPos = EditorGUILayout.BeginScrollView(_watcherScrollPos, GUILayout.Height(200));
+        for (int i = 0; i < _watcherProperties.Count; i++)
+            DrawWatcherPropertyRow(i, sc);
+        EditorGUILayout.EndScrollView();
+
+        EditorGUILayout.Space(8);
+
+        // ── 生成 ──
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("生成预览", GUILayout.Height(28)))
+        {
+            _watcherPreviewCode = WatcherGenerator.BuildWatcherCode(_watcherSelectedCompIndex, _watcherComps, _watcherProperties);
+            _showWatcherPreview = true;
+        }
+        if (GUILayout.Button("生成并保存", GUILayout.Height(28)))
+            SaveWatcherFile(sc.component.GetType().Name , 
+                WatcherGenerator.BuildWatcherCode(_watcherSelectedCompIndex, _watcherComps, _watcherProperties));
+        EditorGUILayout.EndHorizontal();
+
+        if (_showWatcherPreview && !string.IsNullOrEmpty(_watcherPreviewCode))
+        {
+            EditorGUILayout.Space(4);
+            _previewScrollPos = EditorGUILayout.BeginScrollView(_previewScrollPos, GUILayout.Height(200));
+            EditorGUILayout.TextArea(_watcherPreviewCode, GUILayout.ExpandHeight(true));
+            EditorGUILayout.EndScrollView();
+        }
+    }
+
+    private void DrawWatcherPropertyRow(int index, ScannedComponent sc)
+    {
+        var entry = _watcherProperties[index];
+        var propNames = sc.properties.Select(p => p.DisplayName).ToArray();
+
+        EditorGUILayout.BeginVertical("box");
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField($"#{index + 1}", GUILayout.Width(24));
+
+        if (propNames.Length > 0)
+            entry.sourcePropIndex = EditorGUILayout.Popup("组件属性", entry.sourcePropIndex, propNames);
+
+        if (GUILayout.Button("✕", GUILayout.Width(24), GUILayout.Height(18)))
+        {
+            _watcherProperties.RemoveAt(index);
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+            return;
+        }
+        EditorGUILayout.EndHorizontal();
+
+        if (entry.sourcePropIndex >= 0 && entry.sourcePropIndex < sc.properties.Count)
+        {
+            var prop = sc.properties[entry.sourcePropIndex];
+
+            // 变量命名：默认与属性名一致
+            if (string.IsNullOrEmpty(entry.customFieldName))
+                entry.customFieldName = prop.Name;
+            entry.customFieldName = EditorGUILayout.TextField("变量命名", entry.customFieldName);
+
+            string typeName = prop.ValueType.Name;
+            EditorGUILayout.LabelField($"  → 将声明为 public BindableProperty<{typeName}> m_{entry.customFieldName};",
+                EditorStyles.miniLabel);
+        }
+
+        EditorGUILayout.EndVertical();
+        EditorGUILayout.Space(2);
+    }
+
+    private void ScanSelfComponents()
+    {
+        if (_targetObject == null)
+        {
+            EditorUtility.DisplayDialog("提示", "请先拖入目标 GameObject", "确定");
+            return;
+        }
+        _watcherComps = ComponentScanner.ScanSelf(_targetObject);
+        _watcherCompNames = _watcherComps.Select(s => s.displayName).ToArray();
+        _watcherSelectedCompIndex = -1;
+        _watcherProperties.Clear();
+        _watcherPreviewCode = "";
+        _showWatcherPreview = false;
+        Debug.Log($"[MVVMCodeGen] Watcher 扫描完成：自身 {_watcherComps.Count} 个可绑定组件");
+    }
+
+    private void SaveWatcherFile(string compType, string code)
+    {
+        if (string.IsNullOrEmpty(code))
+        {
+            EditorUtility.DisplayDialog("提示", "请先选择目标组件并添加至少一个属性", "确定");
+            return;
+        }
+
+        //string compType = sc.component.GetType().Name;
+        string className = $"{compType}Watcher";
+
+        var dir = System.IO.Path.Combine(Application.dataPath, "MVVM/Generated");
+        if (!Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        var filePath = System.IO.Path.Combine(dir, className + ".cs");
+        File.WriteAllText(filePath, code);
+        AssetDatabase.Refresh();
+
+        Debug.Log($"[MVVMCodeGen] Watcher 已生成: {filePath}");
+        EditorUtility.DisplayDialog("完成", $"Watcher 已生成:\nAssets/MVVM/Generated/{className}.cs", "确定");
+    }
+
+    #endregion
+
     #region ============ 辅助方法 ============
 
     private UIComponentType MapComponentToType(Component comp)
@@ -821,4 +1016,11 @@ public class ManagerEntry
 {
     public MonoScript viewScript;
     public MonoScript viewModelScript;
+}
+
+[System.Serializable]
+public class WatcherPropertyEntry
+{
+    public int sourcePropIndex = -1;
+    public string customFieldName = "";
 }

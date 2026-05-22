@@ -151,8 +151,11 @@ public class UICoder
                 else if (c.componentType == UIComponentType.Button || hasEventItems)
                     GenEventBindings(c);
                 else if (hasViewItems && c.componentType == UIComponentType.Custom)
+                {
                     // Custom 类型但有 viewItems：按单向绑定生成（没有已知的 onChange 事件，Wrap 仅静态包装）
+                    _sb.AppendLine("        // 组件属性无onChange事件，仅作单向绑定处理");
                     GenOneWayBinding(c);
+                }
                 else if (c.componentType == UIComponentType.Custom)
                     GenCustomPlaceholder(c);
             }
