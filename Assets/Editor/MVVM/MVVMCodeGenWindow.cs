@@ -827,12 +827,11 @@ public class MVVMCodeGenWindow : EditorWindow
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button("生成预览", GUILayout.Height(28)))
         {
-            _watcherPreviewCode = WatcherGenerator.BuildWatcherCode(_watcherSelectedCompIndex, _watcherComps, _watcherProperties);
+            _watcherPreviewCode = BuildWatcherCode();
             _showWatcherPreview = true;
         }
         if (GUILayout.Button("生成并保存", GUILayout.Height(28)))
-            SaveWatcherFile(sc.component.GetType().Name , 
-                WatcherGenerator.BuildWatcherCode(_watcherSelectedCompIndex, _watcherComps, _watcherProperties));
+            SaveWatcherFile();
         EditorGUILayout.EndHorizontal();
 
         if (_showWatcherPreview && !string.IsNullOrEmpty(_watcherPreviewCode))
@@ -899,22 +898,44 @@ public class MVVMCodeGenWindow : EditorWindow
         Debug.Log($"[MVVMCodeGen] Watcher 扫描完成：自身 {_watcherComps.Count} 个可绑定组件");
     }
 
-    private void SaveWatcherFile(string compType, string code)
+    private string BuildWatcherCode()
     {
+        string goName = _targetObject != null ? _targetObject.name.Replace(" ", "") : "";
+        return WatcherGenerator.BuildWatcherCode(goName,
+            _watcherSelectedCompIndex, _watcherComps, _watcherProperties);
+    }
+
+    private void SaveWatcherFile()
+    {
+        string goName = _targetObject != null ? _targetObject.name.Replace(" ", "") : "";
+        string code = WatcherGenerator.BuildWatcherCode(goName,
+            _watcherSelectedCompIndex, _watcherComps, _watcherProperties);
+
         if (string.IsNullOrEmpty(code))
         {
             EditorUtility.DisplayDialog("提示", "请先选择目标组件并添加至少一个属性", "确定");
             return;
         }
 
-        //string compType = sc.component.GetType().Name;
-        string className = $"{compType}Watcher";
+        var sc = WatcherGenerator.GetSelectedWatcherComp(_watcherSelectedCompIndex, _watcherComps);
+        string compType = sc.component.GetType().Name;
+        string prefix = string.IsNullOrEmpty(goName) ? compType : $"{goName}_{compType}";
+        string className = $"{prefix}Watcher";
 
         var dir = System.IO.Path.Combine(Application.dataPath, "MVVM/Generated");
         if (!Directory.Exists(dir))
             Directory.CreateDirectory(dir);
 
         var filePath = System.IO.Path.Combine(dir, className + ".cs");
+
+        if (File.Exists(filePath))
+        {
+            bool overwrite = EditorUtility.DisplayDialog("文件已存在",
+                $"目标位置已存在文件:\n{className}.cs\n\n是否覆盖？",
+                "覆盖", "取消");
+            if (!overwrite) return;
+        }
+
         File.WriteAllText(filePath, code);
         AssetDatabase.Refresh();
 
