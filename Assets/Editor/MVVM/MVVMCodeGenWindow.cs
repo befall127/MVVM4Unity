@@ -873,8 +873,13 @@ public class MVVMCodeGenWindow : EditorWindow
                 entry.customFieldName = prop.Name;
             entry.customFieldName = EditorGUILayout.TextField("变量命名", entry.customFieldName);
 
+            int modeIdx = entry.usePolling ? 0 : 1;
+            modeIdx = EditorGUILayout.Popup("监听方式", modeIdx, new[] { "轮询检测", "响应触发" });
+            entry.usePolling = modeIdx == 0;
+
             string typeName = prop.ValueType.Name;
-            EditorGUILayout.LabelField($"  → 将声明为 public BindableProperty<{typeName}> m_{entry.customFieldName};",
+            string modeLabel = entry.usePolling ? "Update 轮询" : "方法触发";
+            EditorGUILayout.LabelField($"  → public BindableProperty<{typeName}> m_{entry.customFieldName};  [{modeLabel}]",
                 EditorStyles.miniLabel);
         }
 
@@ -1044,4 +1049,5 @@ public class WatcherPropertyEntry
 {
     public int sourcePropIndex = -1;
     public string customFieldName = "";
+    public bool usePolling;           // 轮询检测 = true, 响应触发 = false
 }

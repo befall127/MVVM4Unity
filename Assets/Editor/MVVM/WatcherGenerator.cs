@@ -3,6 +3,8 @@ using System.IO;
 using System.Text;
 using UnityEngine;
 using MVVM.Editor;
+using System.Linq;
+
 
 
 #if UNITY_EDITOR
@@ -38,26 +40,31 @@ public static class WatcherGenerator
         var sc = GetSelectedWatcherComp(selectedCompIndex, comps);
         if (sc == null) return null;
 
-        var activeProps = new List<(int idx, string name, System.Type type)>();
+        // (index, fieldName, type, usePolling)
+        var activeProps = new List<(int idx, string name, System.Type type, bool usePolling)>();
         foreach (var entry in properties)
         {
             if (entry.sourcePropIndex < 0 || entry.sourcePropIndex >= sc.properties.Count)
                 continue;
             var prop = sc.properties[entry.sourcePropIndex];
             string fieldName = string.IsNullOrEmpty(entry.customFieldName) ? prop.Name : entry.customFieldName;
-            activeProps.Add((entry.sourcePropIndex, fieldName, prop.ValueType));
+            activeProps.Add((entry.sourcePropIndex, fieldName, prop.ValueType, entry.usePolling));
         }
         if (activeProps.Count == 0) return null;
+
+        bool hasPolling = activeProps.Exists(p => p.usePolling);
+        bool hasTrigger = activeProps.Exists(p => !p.usePolling);
 
         string compType = sc.component.GetType().Name;
         string prefix = string.IsNullOrEmpty(gameObjectName) ? compType : $"{gameObjectName}_{compType}";
         string className = $"{prefix}Watcher";
 
         var sb = new StringBuilder();
+        sb.AppendLine("using System;");
         sb.AppendLine("using UnityEngine;");
         sb.AppendLine();
         sb.AppendLine("/// <summary>");
-        sb.AppendLine($"/// 自动生成：轮询 {gameObjectName}.{compType} 属性变化，同步到 BindablePropertyPool");
+        sb.AppendLine($"/// 自动生成：监听 {gameObjectName}.{compType} 属性变化，同步到 BindablePropertyPool");
         sb.AppendLine("/// </summary>");
         sb.AppendLine($"[RequireComponent(typeof({compType}))]");
         sb.AppendLine($"public class {className} : MonoBehaviour");
@@ -65,26 +72,33 @@ public static class WatcherGenerator
         sb.AppendLine($"    private {compType} _target;");
         sb.AppendLine();
 
-        // BindableProperty 变量
+        // ── BindableProperty 变量 ──
         foreach (var ap in activeProps)
             sb.AppendLine($"    public BindableProperty<{ap.type.Name}> m_{ap.name} = new BindableProperty<{ap.type.Name}>();");
 
         sb.AppendLine();
 
-        // 值快照
+        // ── 值快照 ──
         foreach (var ap in activeProps)
             sb.AppendLine($"    private {ap.type.Name} _last_{ap.name};");
 
         sb.AppendLine();
 
-        // Pool Key 常量（含 GameObject 名称前缀防重名）
+        // ── Pool Key 常量 ──
         foreach (var ap in activeProps)
             sb.AppendLine($"    public const string POOL_KEY_{ap.name} = \"{gameObjectName}_{compType}.{ap.name}\";");
 
         sb.AppendLine();
-        sb.AppendLine("    [SerializeField] private float _checkInterval = 0.1f;");
-        sb.AppendLine("    private float _timer;");
-        sb.AppendLine();
+
+        // ── 轮询间隔（仅轮询模式需要）──
+        if (hasPolling)
+        {
+            sb.AppendLine("    [SerializeField] private float _checkInterval = 0.1f;");
+            sb.AppendLine("    private float _timer;");
+            sb.AppendLine();
+        }
+
+        // ── Start ──
         sb.AppendLine("    void Start()");
         sb.AppendLine("    {");
         sb.AppendLine($"        _target = GetComponent<{compType}>();");
@@ -96,23 +110,62 @@ public static class WatcherGenerator
         sb.AppendLine();
         foreach (var ap in activeProps)
             sb.AppendLine($"        m_{ap.name}.AddToPool(POOL_KEY_{ap.name}, m_{ap.name}.Value);");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    void Update()");
-        sb.AppendLine("    {");
-        sb.AppendLine("        _timer += Time.deltaTime;");
-        sb.AppendLine("        if (_timer < _checkInterval) return;");
-        sb.AppendLine("        _timer = 0;");
-        sb.AppendLine();
-        foreach (var ap in activeProps)
+
+        // ── 添加1：Pool 事件 + 绑定（全部属性）──
+        if (activeProps.Count > 0)
         {
-            sb.AppendLine($"        if (!Equals(_target.{ap.name}, _last_{ap.name}))");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            _last_{ap.name} = _target.{ap.name};");
-            sb.AppendLine($"            m_{ap.name}.Value = _target.{ap.name};");
-            sb.AppendLine("        }");
+            sb.AppendLine();
+            foreach (var ap in activeProps)
+            {
+                string capName = char.ToUpper(ap.name[0]) + ap.name.Substring(1);
+                sb.AppendLine($"        // ── {capName} ──");
+                sb.AppendLine($"        var poolEvt_{ap.name} = m_{ap.name}.AddPoolEvent<{ap.type.Name}>(POOL_KEY_{ap.name} + \"Event\");");
+                sb.AppendLine($"        poolEvt_{ap.name}.Value = v =>");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            // TODO: 用户自行实现 {capName} 变更逻辑");
+                sb.AppendLine("        };");
+                sb.AppendLine($"        m_{ap.name}.AddPoolBinding<{ap.type.Name}>();");
+            }
         }
+
         sb.AppendLine("    }");
+
+        // ── Update（仅轮询模式）──
+        if (hasPolling)
+        {
+            sb.AppendLine();
+            sb.AppendLine("    void Update()");
+            sb.AppendLine("    {");
+            sb.AppendLine("        _timer += Time.deltaTime;");
+            sb.AppendLine("        if (_timer < _checkInterval) return;");
+            sb.AppendLine("        _timer = 0;");
+            sb.AppendLine();
+            foreach (var ap in activeProps.Where(p => p.usePolling))
+            {
+                sb.AppendLine($"        if (!Equals(_target.{ap.name}, _last_{ap.name}))");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            _last_{ap.name} = _target.{ap.name};");
+                sb.AppendLine($"            m_{ap.name}.Value = _target.{ap.name};");
+                sb.AppendLine("        }");
+            }
+            sb.AppendLine("    }");
+        }
+
+        // ── 添加2：外部触发方法（仅响应触发模式）──
+        if (hasTrigger)
+        {
+            foreach (var ap in activeProps.Where(p => !p.usePolling))
+            {
+                string capName = char.ToUpper(ap.name[0]) + ap.name.Substring(1);
+                sb.AppendLine();
+                sb.AppendLine($"    /// <summary>外部调用触发 {ap.name} 变更</summary>");
+                sb.AppendLine($"    public void {capName}({ap.type.Name} value)");
+                sb.AppendLine("    {");
+                sb.AppendLine($"        m_{ap.name}.Value = value;");
+                sb.AppendLine("    }");
+            }
+        }
+
         sb.AppendLine("}");
 
         return sb.ToString();
