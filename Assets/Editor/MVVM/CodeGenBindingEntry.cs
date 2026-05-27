@@ -111,6 +111,32 @@ namespace MVVM.Editor
             return result;
         }
 
+        /// <summary>
+        /// 仅扫描目标 GameObject 自身组件，使用 Watcher 专用的宽松类型过滤
+        /// </summary>
+        public static List<ScannedComponent> ScanSelfForWatcher(GameObject go)
+        {
+            var result = new List<ScannedComponent>();
+            if (go == null) return result;
+
+            foreach (var comp in go.GetComponents<Component>())
+            {
+                var props = GetWatchableProps(comp);
+                var evts = GetBindableEvents(comp);
+                if (props.Count == 0 && evts.Count == 0) continue;
+
+                result.Add(new ScannedComponent
+                {
+                    gameObject = go,
+                    component = comp,
+                    displayName = $"{go.name}/{comp.GetType().Name}",
+                    properties = props,
+                    events = evts
+                });
+            }
+            return result;
+        }
+
         private static void ScanRecursive(GameObject go, List<ScannedComponent> result, string parentPath)
         {
             // 构造当前节点的完整路径（根节点时 parentPath 为空）
@@ -182,6 +208,55 @@ namespace MVVM.Editor
                 });
             }
             return list;
+        }
+
+        /// <summary>
+        /// Watcher 专用宽松类型过滤：值类型（含枚举和 struct）+ string 均可监听
+        /// </summary>
+        public static List<BindablePropInfo> GetWatchableProps(Component comp)
+        {
+            var list = new List<BindablePropInfo>();
+            var type = comp.GetType();
+            if (type == typeof(Transform) || type == typeof(RectTransform))
+                return list;
+
+            var flags = BindingFlags.Public | BindingFlags.Instance;
+            foreach (var prop in type.GetProperties(flags))
+            {
+                if (!prop.CanRead || !prop.CanWrite) continue;
+                if (typeof(UnityEventBase).IsAssignableFrom(prop.PropertyType)) continue;
+                if (prop.PropertyType.IsSubclassOf(typeof(Component))) continue;
+                if (_skipWatchProps.Contains(prop.Name)) continue;
+                if (!IsWatchableType(prop.PropertyType)) continue;
+
+                list.Add(new BindablePropInfo
+                {
+                    Name = prop.Name,
+                    ValueType = prop.PropertyType,
+                    DisplayName = $"{prop.Name} ({TypeToKeyword(prop.PropertyType)})"
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Watcher 需要跳过的无用属性（继承自基类的编辑器/生命周期开关，没有监听价值）
+        /// </summary>
+        private static HashSet<string> _skipWatchProps = new HashSet<string>
+        {
+            "useGUILayout",
+            "runInEditMode",
+            "enabled",
+            // "tag",     // 保留，有人可能会用
+            // "name",    // 保留
+        };
+
+        /// <summary>Watcher 宽松判定：值类型（含枚举和 struct）+ string 可通过</summary>
+        private static bool IsWatchableType(Type t)
+        {
+            if (t.IsValueType) return true;
+            if (t == typeof(string)) return true;
+            return false;
         }
 
         /// <summary>

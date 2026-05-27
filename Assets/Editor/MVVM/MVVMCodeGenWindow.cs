@@ -894,7 +894,7 @@ public class MVVMCodeGenWindow : EditorWindow
             EditorUtility.DisplayDialog("提示", "请先拖入目标 GameObject", "确定");
             return;
         }
-        _watcherComps = ComponentScanner.ScanSelf(_targetObject);
+        _watcherComps = ComponentScanner.ScanSelfForWatcher(_targetObject);
         _watcherCompNames = _watcherComps.Select(s => s.displayName).ToArray();
         _watcherSelectedCompIndex = -1;
         _watcherProperties.Clear();
