@@ -222,6 +222,34 @@ public class Binder
         return true;
     }
 
+    /// <summary>
+    /// 注册全局事件绑定：EventBus 发布 T 时触发 ViewModel 中的 Action&lt;T&gt;
+    /// View 销毁时自动取消订阅，无需手动管理生命周期
+    /// </summary>
+    /// <typeparam name="T">事件数据类型</typeparam>
+    /// <param name="viewModelFunc">ViewModel 中 Action&lt;T&gt; 的属性名</param>
+    public bool RegisterGlobalEvent<T>(string viewModelFunc)
+    {
+        var prop = _viewModel.GetBindableProperty<Action<T>>(viewModelFunc);
+
+        if (prop == null)
+        {
+            Debug.LogWarning($"[Binder] RegisterGlobalEvent<{typeof(T).Name}> 失败：属性 \"{viewModelFunc}\" 绑定的类型不匹配。" +
+                $"请确保 ViewModel 中已通过 SetValue<Action<{typeof(T).Name}>> 设置该属性。");
+            return false;
+        }
+
+        // 捕获 prop 引用（非值），EventBus 触发时读取最新 prop.Value
+        Action<T> handler = (data) =>
+        {
+            prop.Value?.Invoke(data);
+        };
+
+        EventBus.Subscribe<T>(handler);
+        _unbindActions.Add(() => EventBus.Unsubscribe<T>(handler));
+        return true;
+    }
+
     #endregion
 
     #region 解绑
